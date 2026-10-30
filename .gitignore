@@ -4,3 +4,4 @@ dist/
 models/
 tmp/
 *.wav
+.venv/

@@ -2,8 +2,19 @@
 
 Discord AI bot: chats in text, speaks in voice via Piper TTS, will listen in voice via STT. Runs on Windows.
 
-A change is done when `npm run typecheck` is clean. Nothing has run against Discord yet, so say which
-behaviour is verified only by typecheck.
+A change is done when `npm run typecheck` and `npm test` pass. Nothing has run against Discord yet, so say
+what is left for the owner to check there.
+
+## Working style
+
+- **Readable code is a requirement:** the owner reads and edits this code without help. Clear names, small
+  functions, explicit code over clever one-liners; comment the *why* of anything non-obvious.
+- **Test-first for logic:** write or extend the `*.test.ts` next to the module, watch it fail, then make it
+  pass (`npm run test:watch`). Node's built-in runner; plain-English test names; explain expected values.
+- **Thin edges, tested middle:** Discord, the LLM and processes stay in small adapters
+  (`chat/discordMessages.ts`, `llm/client.ts`, `voice/session.ts`, `index.ts`). Logic behind them takes its
+  outside world as parameters (`createResponder(deps)`, `new SpeechQueue(options)`) so tests pass fakes.
+  Modules that tests import must not import `config.ts`: it throws without a `.env`.
 
 ## Stages
 
@@ -19,15 +30,19 @@ behaviour is verified only by typecheck.
 
 - **DAVE:** Discord requires end-to-end voice encryption since 2026-03-01. `@snazzah/davey` stays a real
   dependency; `daveEncryption` defaults to true in @discordjs/voice. Without it, joining fails (close code 4017).
-- **Speech generation:** `VoiceSession.stop()` bumps `generation`. Any code feeding a reply into `speak()`
-  over time captures `generation` first and stops feeding once it changes (see `src/chat.ts`).
+- **Stopping speech:** a reply that streams into voice goes through `startReply()`, which goes quiet after
+  `stop()`. Feeding sentences to `speak()` yourself would keep talking after `/shutup`.
+- **The reply only grows:** `hideThinking` (llm/thinking.ts) holds back half-written `<think>` tags so each
+  "reply so far" extends the previous one. `ReplySpeech` relies on that to speak only the new part.
 - **Audio receive** is undocumented by Discord; @discordjs/voice support may be fragile.
-- **Piper CLI:** `src/tts/piper.ts` passes text on stdin with `-m <model> -f <out.wav>`. Confirmed for the
-  standalone binary only; verify against the `pip install piper-tts` CLI before relying on it.
+- **Piper:** `piper-tts` (1.8.0) lives in `.venv`. Loading a voice takes ~4 s; synthesis then runs at ~0.2×
+  realtime. So `src/tts/piper.ts` keeps one `piper_worker.py` process alive (JSON lines over stdin/stdout) and
+  warms it up on `/join`; spawning Piper per sentence would add that 4 s to every sentence.
 - **Opus** uses `opusscript` (pure JS) to avoid native builds on Windows; `@discordjs/opus` is faster if build
   tools exist.
-- **Local LLM on this PC:** llama.cpp/Ollama with the Vulkan backend (RX 6650 XT, 8 GB), 7–8B model at Q4_K_M.
-  Piper runs on CPU so the GPU stays free for the model.
+- **Machines:** development happens on a laptop (i7-1165G7, 16 GB, Intel Iris Xe, no usable GPU for LLMs) that
+  uses a cloud LLM such as Groq. The desktop PC runs a local LLM: llama.cpp with the Vulkan backend
+  (RX 6650 XT, 8 GB), 7–8B model at Q4_K_M. Piper runs on CPU on both, so the GPU stays free for the model.
 
 ## Agent skills
 

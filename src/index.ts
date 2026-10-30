@@ -1,8 +1,25 @@
 import { Client, Events, GatewayIntentBits } from 'discord.js';
-import { config } from './config.js';
-import { handleMessage } from './chat.js';
+import { handleDiscordMessage } from './chat/discordMessages.js';
+import { HistoryStore } from './chat/history.js';
+import { createResponder } from './chat/respond.js';
 import { handleCommand, registerCommands } from './commands.js';
+import { config } from './config.js';
+import { streamReply } from './llm/client.js';
 import { voiceManager } from './voice/manager.js';
+
+// The pieces are put together here, so each one can be tested on its own.
+const history = new HistoryStore(config.bot.historyMaxMessages);
+
+const respond = createResponder({
+  systemPrompt: config.bot.systemPrompt,
+  history,
+  streamReply,
+  // Replies are spoken only in the text channel /join was used in.
+  speechFor: ({ guildId, channelId }) => {
+    const session = voiceManager.get(guildId);
+    return session?.textChannelId === channelId ? session.startReply() : undefined;
+  },
+});
 
 const client = new Client({
   intents: [
@@ -24,12 +41,12 @@ client.once(Events.ClientReady, async (c) => {
 });
 
 client.on(Events.MessageCreate, (message) => {
-  handleMessage(client, message).catch((err) => console.error('[message]', err));
+  handleDiscordMessage(message, respond).catch((err) => console.error('[message]', err));
 });
 
 client.on(Events.InteractionCreate, (interaction) => {
   if (!interaction.isChatInputCommand()) return;
-  handleCommand(interaction).catch((err) => console.error('[command]', err));
+  handleCommand(interaction, history).catch((err) => console.error('[command]', err));
 });
 
 function shutdown() {

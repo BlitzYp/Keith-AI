@@ -5,8 +5,8 @@ import {
   Routes,
   SlashCommandBuilder,
 } from 'discord.js';
+import type { HistoryStore } from './chat/history.js';
 import { config } from './config.js';
-import { history } from './chat.js';
 import { voiceManager } from './voice/manager.js';
 
 export const commands = [
@@ -36,7 +36,10 @@ export async function registerCommands(): Promise<void> {
   }
 }
 
-export async function handleCommand(interaction: ChatInputCommandInteraction): Promise<void> {
+export async function handleCommand(
+  interaction: ChatInputCommandInteraction,
+  history: HistoryStore,
+): Promise<void> {
   if (!interaction.inCachedGuild()) {
     await interaction.reply({ content: 'Use me inside a server.', flags: MessageFlags.Ephemeral });
     return;

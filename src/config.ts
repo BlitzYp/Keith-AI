@@ -33,7 +33,8 @@ export const config = {
     historyMaxMessages: Number(optional('HISTORY_MAX_MESSAGES', '20')),
   },
   piper: {
-    path: optional('PIPER_PATH', 'piper'),
+    /** Python that has piper-tts installed; runs src/tts/piper_worker.py. */
+    python: optional('PIPER_PYTHON', '.venv/Scripts/python.exe'),
     model: optional('PIPER_MODEL', './models/en_US-lessac-medium.onnx'),
   },
 };

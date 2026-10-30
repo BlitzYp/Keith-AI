@@ -1,4 +1,4 @@
-import type { ChatMessage } from './client.js';
+import type { ChatMessage } from '../llm/client.js';
 
 /**
  * Per-channel rolling conversation history.

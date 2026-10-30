@@ -14,27 +14,27 @@ import {
 } from '@discordjs/voice';
 import type { VoiceBasedChannel } from 'discord.js';
 import ffmpegPath from 'ffmpeg-static';
-import { synthesize } from '../tts/piper.js';
-import { cleanForSpeech } from '../tts/text.js';
+import { config } from '../config.js';
+import { PiperWorker } from '../tts/piper.js';
+import { SpeechQueue, type ReplySpeech } from './speechQueue.js';
+
+/** One Piper for the whole bot: it handles sentences one at a time anyway. */
+const piper = new PiperWorker(config.piper);
 
 /**
- * One voice session per guild: the voice connection, an audio player, and an
- * ordered queue of sentences to speak. Sentences are synthesized in parallel
- * as they arrive but always played in order.
+ * Keith in one voice channel: the Discord connection, an audio player, and the queue of
+ * sentences to speak. The queue (speechQueue.ts) decides what plays when; this class only
+ * connects it to Discord.
  */
 export class VoiceSession {
   readonly connection: VoiceConnection;
   private readonly player: AudioPlayer;
-  private readonly queue: Promise<string | null>[] = [];
-  private playing = false;
-  private currentFile: string | null = null;
-  /** Bumped by stop(); anything queued under an older generation is discarded. */
-  private gen = 0;
+  private readonly speech: SpeechQueue;
 
   private constructor(
     channel: VoiceBasedChannel,
     /** Text channel whose bot replies get read aloud in this VC. */
-    public textChannelId: string,
+    public readonly textChannelId: string,
     private readonly onDestroyed: () => void,
   ) {
     this.connection = joinVoiceChannel({
@@ -50,14 +50,15 @@ export class VoiceSession {
       behaviors: { noSubscriber: NoSubscriberBehavior.Pause },
     });
     this.connection.subscribe(this.player);
-
-    this.player.on(AudioPlayerStatus.Idle, () => {
-      void this.cleanupCurrent();
-      this.playing = false;
-      void this.playNext();
-    });
     this.player.on('error', (err) => {
       console.error('[voice] player error:', err.message);
+    });
+
+    this.speech = new SpeechQueue({
+      synthesize: (text) => piper.synthesize(text),
+      play: (file) => this.playFile(file),
+      stopPlaying: () => this.player.stop(true),
+      deleteFile: (file) => unlink(file),
     });
 
     // Standard reconnect handling: if Discord moves or briefly drops us, wait
@@ -73,8 +74,7 @@ export class VoiceSession {
       }
     });
     this.connection.on(VoiceConnectionStatus.Destroyed, () => {
-      this.stop();
-      void this.cleanupCurrent();
+      this.speech.stop();
       this.onDestroyed();
     });
     this.connection.on('error', (err) => {
@@ -87,10 +87,11 @@ export class VoiceSession {
     textChannelId: string,
     onDestroyed: () => void,
   ): Promise<VoiceSession> {
+    piper.warmUp(); // load the voice while the connection comes up
     const session = new VoiceSession(channel, textChannelId, onDestroyed);
     try {
       await entersState(session.connection, VoiceConnectionStatus.Ready, 20_000);
-    } catch (err) {
+    } catch {
       session.destroy();
       throw new Error(
         'Could not connect to the voice channel within 20s. ' +
@@ -100,72 +101,36 @@ export class VoiceSession {
     return session;
   }
 
-  /** Changes every time stop() runs, so a streaming reply can tell it was cut off. */
-  get generation(): number {
-    return this.gen;
-  }
-
-  /** Queues text to be spoken. Safe to call once per sentence while a reply streams in. */
+  /** Queues text to be spoken, e.g. from /say. */
   speak(text: string): void {
-    if (this.connection.state.status === VoiceConnectionStatus.Destroyed) return;
-    const clean = cleanForSpeech(text);
-    if (!clean) return;
-    this.queue.push(
-      synthesize(clean).catch((err: Error) => {
-        console.error('[tts]', err.message);
-        return null;
-      }),
-    );
-    void this.playNext();
+    if (this.isDestroyed()) return;
+    this.speech.speak(text);
   }
 
-  /** Stops current speech and drops anything queued (barge-in). */
+  /** Speaks a chat reply while it streams in. */
+  startReply(): ReplySpeech {
+    return this.speech.startReply();
+  }
+
+  /** Stops current speech and drops anything queued (/shutup, barge-in). */
   stop(): void {
-    this.gen++;
-    // Sentences still being synthesized: delete their WAVs once Piper finishes.
-    for (const pending of this.queue.splice(0)) {
-      void pending.then((file) => {
-        if (file) return unlink(file).catch(() => {});
-      });
-    }
-    this.player.stop(true);
+    this.speech.stop();
   }
 
   destroy(): void {
-    if (this.connection.state.status !== VoiceConnectionStatus.Destroyed) {
-      this.connection.destroy();
-    }
+    if (!this.isDestroyed()) this.connection.destroy();
   }
 
-  private async playNext(): Promise<void> {
-    if (this.playing) return;
-    const next = this.queue.shift();
-    if (!next) return;
-    this.playing = true;
-    const gen = this.gen;
-
-    const file = await next;
-    if (gen !== this.gen) {
-      // stop() ran while this sentence was being synthesized.
-      if (file) await unlink(file).catch(() => {});
-      this.playing = false;
-      return this.playNext();
-    }
-    if (!file) {
-      this.playing = false;
-      return this.playNext();
-    }
-
-    this.currentFile = file;
-    this.player.play(
-      createAudioResource(wavToDiscordPcm(file), { inputType: StreamType.Raw }),
-    );
+  private isDestroyed(): boolean {
+    return this.connection.state.status === VoiceConnectionStatus.Destroyed;
   }
 
-  private async cleanupCurrent(): Promise<void> {
-    const file = this.currentFile;
-    this.currentFile = null;
-    if (file) await unlink(file).catch(() => {});
+  /** Plays one WAV file; resolves when the player goes idle (finished, stopped or failed). */
+  private playFile(file: string): Promise<void> {
+    return new Promise((resolve) => {
+      this.player.once(AudioPlayerStatus.Idle, () => resolve());
+      this.player.play(createAudioResource(wavToDiscordPcm(file), { inputType: StreamType.Raw }));
+    });
   }
 }
 
@@ -174,6 +139,8 @@ export class VoiceSession {
  * Discord wants 48 kHz stereo 16-bit PCM, so resample with ffmpeg.
  */
 function wavToDiscordPcm(file: string) {
+  // ffmpeg-static's types declare `export default`, but the package is CommonJS, so under
+  // NodeNext TypeScript types the default import as the whole module. At runtime it's the path.
   const bin = (ffmpegPath as unknown as string | null) ?? 'ffmpeg';
   const ff = spawn(
     bin,

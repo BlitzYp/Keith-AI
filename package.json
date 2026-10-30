@@ -12,7 +12,9 @@
     "start": "tsx src/index.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "voice:report": "tsx src/scripts/voiceReport.ts"
+    "voice:report": "tsx src/scripts/voiceReport.ts",
+    "test": "node --import tsx --test --test-reporter=spec \"src/**/*.test.ts\"",
+    "test:watch": "node --import tsx --test --watch --test-reporter=spec \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@discordjs/voice": "^0.19.2",
