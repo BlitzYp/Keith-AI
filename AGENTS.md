@@ -2,8 +2,8 @@
 
 Discord AI bot: chats in text, speaks in voice via Piper TTS, will listen in voice via STT. Runs on Windows.
 
-A change is done when `npm run typecheck` and `npm test` pass. Nothing has run against Discord yet, so say
-what is left for the owner to check there.
+A change is done when `npm run typecheck` and `npm test` pass. Say what is left for the owner to check in
+Discord: tests can't cover the live connection, playback or the real model.
 
 ## Working style
 
@@ -18,8 +18,8 @@ what is left for the owner to check there.
 
 ## Stages
 
-1. Text bot: built.
-2. Voice out (Piper TTS): built.
+1. Text bot: working (owner confirmed in Discord, 2026-10-30).
+2. Voice out (Piper TTS): working: `/join` and `/say` confirmed in Discord, 2026-10-30.
 3. Voice in (STT): TODO. Per-user Opus stream from `connection.receiver` → decode to PCM → 16 kHz mono →
    end-of-speech detection (speaking end + ~700 ms silence, or Silero VAD) → faster-whisper / whisper.cpp →
    LLM → existing TTS path. The connection already joins with `selfDeaf: false`.
@@ -41,7 +41,8 @@ what is left for the owner to check there.
 - **Opus** uses `opusscript` (pure JS) to avoid native builds on Windows; `@discordjs/opus` is faster if build
   tools exist.
 - **Machines:** development happens on a laptop (i7-1165G7, 16 GB, Intel Iris Xe, no usable GPU for LLMs) that
-  uses a cloud LLM such as Groq. The desktop PC runs a local LLM: llama.cpp with the Vulkan backend
+  uses Groq with `openai/gpt-oss-120b`. The owner's Groq account has no Llama models (Enterprise only), so list
+  what the key can use (`GET /openai/v1/models`) before suggesting one. The desktop PC runs a local LLM: llama.cpp with the Vulkan backend
   (RX 6650 XT, 8 GB), 7–8B model at Q4_K_M. Piper runs on CPU on both, so the GPU stays free for the model.
 
 ## Agent skills
