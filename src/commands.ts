@@ -7,18 +7,40 @@ import {
 } from 'discord.js';
 import type { HistoryStore } from './chat/history.js';
 import { config } from './config.js';
+import type { ListenMode } from './voice/addressing.js';
 import { voiceManager } from './voice/manager.js';
+
+const name = config.bot.name;
+
+/** How each /listen mode is described, in the command's choices and in Keith's replies. */
+const LISTEN_MODES: Record<ListenMode, string> = {
+  name: `only when someone says "${name}"`,
+  everyone: 'to everything anyone says',
+};
 
 export const commands = [
   new SlashCommandBuilder()
     .setName('join')
-    .setDescription('Join your voice channel and read my replies from this channel aloud'),
+    .setDescription('Join your voice channel: I listen, answer out loud, and post the chat here'),
   new SlashCommandBuilder().setName('leave').setDescription('Leave the voice channel'),
   new SlashCommandBuilder()
     .setName('say')
     .setDescription('Say something in the voice channel')
     .addStringOption((o) => o.setName('text').setDescription('What to say').setRequired(true)),
   new SlashCommandBuilder().setName('shutup').setDescription('Stop talking right now'),
+  new SlashCommandBuilder()
+    .setName('listen')
+    .setDescription(`Choose what I answer in voice: everything, or only when someone says "${name}"`)
+    .addStringOption((o) =>
+      o
+        .setName('mode')
+        .setDescription('Who I answer')
+        .setRequired(true)
+        .addChoices(
+          { name: `Only when someone says "${name}"`, value: 'name' },
+          { name: 'Everything anyone says', value: 'everyone' },
+        ),
+    ),
   new SlashCommandBuilder()
     .setName('reset')
     .setDescription('Forget the conversation history in this channel'),
@@ -57,7 +79,9 @@ export async function handleCommand(
       try {
         await voiceManager.join(channel, interaction.channelId);
         await interaction.editReply(
-          `Joined **${channel.name}**. I'll read my replies in this channel out loud.`,
+          `Joined **${channel.name}**. 🎙️ I'm listening, and I answer out loud ` +
+            `${LISTEN_MODES[voiceManager.listenMode(guild.id)]} (change it with /listen). ` +
+            `What I answer gets transcribed and posted here. My replies in this channel are spoken too.`,
         );
       } catch (err) {
         await interaction.editReply(`Couldn't join: ${(err as Error).message}`);
@@ -86,6 +110,13 @@ export async function handleCommand(
     case 'shutup': {
       voiceManager.get(guild.id)?.stop();
       await interaction.reply({ content: 'Okay, okay.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    case 'listen': {
+      const mode = interaction.options.getString('mode', true) as ListenMode;
+      voiceManager.setListenMode(guild.id, mode);
+      await interaction.reply(`Okay: in voice I'll answer ${LISTEN_MODES[mode]}.`);
       return;
     }
 

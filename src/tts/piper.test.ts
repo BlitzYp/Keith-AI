@@ -6,9 +6,10 @@ import { readFile, unlink } from 'node:fs/promises';
 import { after, describe, it } from 'node:test';
 import { PiperWorker } from './piper.js';
 
+// Same env vars and defaults as the bot (config.ts), which this test can't import.
 const settings = {
-  python: '.venv/Scripts/python.exe',
-  model: './models/en_US-lessac-medium.onnx',
+  python: process.env.PIPER_PYTHON || '.venv/Scripts/python.exe',
+  model: process.env.PIPER_MODEL || './models/en_US-lessac-medium.onnx',
 };
 const missing = [settings.python, settings.model].find((path) => !existsSync(path));
 const skip = missing ? `Piper isn't set up here (no ${missing})` : false;

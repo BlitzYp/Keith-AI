@@ -1,5 +1,5 @@
 import { Client, Events, GatewayIntentBits } from 'discord.js';
-import { handleDiscordMessage } from './chat/discordMessages.js';
+import { handleDiscordMessage, handleSpokenMessage } from './chat/discordMessages.js';
 import { HistoryStore } from './chat/history.js';
 import { createResponder } from './chat/respond.js';
 import { handleCommand, registerCommands } from './commands.js';
@@ -42,6 +42,11 @@ client.once(Events.ClientReady, async (c) => {
 
 client.on(Events.MessageCreate, (message) => {
   handleDiscordMessage(message, respond).catch((err) => console.error('[message]', err));
+});
+
+// Whatever someone says in Keith's voice channel gets answered like a chat message.
+voiceManager.onHeard((spoken) => {
+  handleSpokenMessage(client, spoken, respond).catch((err) => console.error('[voice message]', err));
 });
 
 client.on(Events.InteractionCreate, (interaction) => {
