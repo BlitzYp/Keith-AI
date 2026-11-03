@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { unlink } from 'node:fs/promises';
 import {
   AudioPlayerStatus,
+  EndBehaviorType,
   NoSubscriberBehavior,
   StreamType,
   VoiceConnectionStatus,
@@ -15,11 +16,50 @@ import {
 import type { VoiceBasedChannel } from 'discord.js';
 import ffmpegPath from 'ffmpeg-static';
 import { config } from '../config.js';
+import { ApiTranscriber } from '../stt/apiTranscriber.js';
+import type { Transcriber } from '../stt/transcriber.js';
+import { WhisperWorker } from '../stt/whisper.js';
 import { PiperWorker } from '../tts/piper.js';
+import { VoiceListener } from './listener.js';
+import { OpusDecoders } from './opusDecoder.js';
 import { SpeechQueue, type ReplySpeech } from './speechQueue.js';
 
 /** One Piper for the whole bot: it handles sentences one at a time anyway. */
 const piper = new PiperWorker(config.piper);
+
+/** One speech-to-text for the whole bot, picked by STT_ENGINE. */
+const transcriber: Transcriber =
+  config.stt.engine === 'api'
+    ? new ApiTranscriber({ ...config.stt.api, language: config.stt.language, prompt: config.stt.prompt })
+    : new WhisperWorker({ ...config.stt.local, language: config.stt.language, prompt: config.stt.prompt });
+
+/** Listening's own copy of opusscript, kept apart from playback's (see opusDecoder.ts). */
+const opusDecoders = new OpusDecoders();
+
+/**
+ * How long someone has to be quiet before Keith takes it they've finished their sentence.
+ * Shorter answers sooner but cuts people off when they pause to think.
+ */
+const END_OF_SPEECH_SILENCE_MS = 1200;
+
+/** "Failed to decrypt" can come 50 times a second; one line every few seconds is plenty. */
+const DECRYPT_LOG_INTERVAL_MS = 5_000;
+
+/** Something said in Keith's voice channel, ready to be answered in its text channel. */
+export interface SpokenMessage {
+  guildId: string;
+  /** The text channel /join was used in: where the transcript and reply go. */
+  textChannelId: string;
+  /** Display name of whoever said it. */
+  speaker: string;
+  text: string;
+}
+
+export interface VoiceSessionEvents {
+  /** Called with each thing someone says in the voice channel. */
+  onHeard(spoken: SpokenMessage): void;
+  onDestroyed(): void;
+}
 
 /**
  * Keith in one voice channel: the Discord connection, an audio player, and the queue of
@@ -35,16 +75,18 @@ export class VoiceSession {
     channel: VoiceBasedChannel,
     /** Text channel whose bot replies get read aloud in this VC. */
     public readonly textChannelId: string,
-    private readonly onDestroyed: () => void,
+    events: VoiceSessionEvents,
   ) {
     this.connection = joinVoiceChannel({
       channelId: channel.id,
       guildId: channel.guild.id,
       adapterCreator: channel.guild.voiceAdapterCreator,
-      selfDeaf: false, // stage 3 (listening) needs to hear people
+      selfDeaf: false, // Keith has to hear people to listen to them
       selfMute: false,
       // daveEncryption defaults to true and needs @snazzah/davey installed.
+      debug: true, // for the DAVE log lines below
     });
+    this.logEncryptionTrouble();
 
     this.player = createAudioPlayer({
       behaviors: { noSubscriber: NoSubscriberBehavior.Pause },
@@ -61,6 +103,8 @@ export class VoiceSession {
       deleteFile: (file) => unlink(file),
     });
 
+    this.startListening(channel, events.onHeard);
+
     // Standard reconnect handling: if Discord moves or briefly drops us, wait
     // for it to recover; otherwise tear the session down.
     this.connection.on(VoiceConnectionStatus.Disconnected, async () => {
@@ -75,7 +119,7 @@ export class VoiceSession {
     });
     this.connection.on(VoiceConnectionStatus.Destroyed, () => {
       this.speech.stop();
-      this.onDestroyed();
+      events.onDestroyed();
     });
     this.connection.on('error', (err) => {
       console.error('[voice] connection error:', err.message);
@@ -85,10 +129,12 @@ export class VoiceSession {
   static async join(
     channel: VoiceBasedChannel,
     textChannelId: string,
-    onDestroyed: () => void,
+    events: VoiceSessionEvents,
   ): Promise<VoiceSession> {
-    piper.warmUp(); // load the voice while the connection comes up
-    const session = new VoiceSession(channel, textChannelId, onDestroyed);
+    // Load the voice and the speech-to-text model while the connection comes up.
+    piper.warmUp();
+    transcriber.warmUp();
+    const session = new VoiceSession(channel, textChannelId, events);
     try {
       await entersState(session.connection, VoiceConnectionStatus.Ready, 20_000);
     } catch {
@@ -123,6 +169,54 @@ export class VoiceSession {
 
   private isDestroyed(): boolean {
     return this.connection.state.status === VoiceConnectionStatus.Destroyed;
+  }
+
+  /**
+   * Hands each person's audio to the listener (listener.ts) when they start speaking. The listener
+   * ends the utterance after END_OF_SPEECH_SILENCE_MS without a packet, and transcribes it.
+   */
+  private startListening(
+    channel: VoiceBasedChannel,
+    onHeard: (spoken: SpokenMessage) => void,
+  ): void {
+    const { guild } = channel;
+    const listener = new VoiceListener({
+      // Members in a voice channel are cached through their voice states. Unknown means "not a bot".
+      shouldListenTo: (userId) => !guild.members.cache.get(userId)?.user.bot,
+      nameOf: (userId) => guild.members.cache.get(userId)?.displayName ?? userId,
+      silenceMs: END_OF_SPEECH_SILENCE_MS,
+      createDecoder: () => opusDecoders.create(),
+      transcribe: (pcm) => transcriber.transcribe(pcm),
+      onHeard: ({ userId, text }) => {
+        if (this.isDestroyed()) return; // finished transcribing after Keith left
+        const speaker = guild.members.cache.get(userId)?.displayName ?? 'Someone';
+        onHeard({ guildId: guild.id, textChannelId: this.textChannelId, speaker, text });
+      },
+    });
+
+    const receiver = this.connection.receiver;
+    receiver.speaking.on('start', (userId) => {
+      // Still recording them: they paused briefly and carried on, inside the same utterance.
+      if (receiver.subscriptions.has(userId)) return;
+      // Manual: the listener decides when they've stopped, and ends the stream by letting go of it.
+      const packets = receiver.subscribe(userId, { end: { behavior: EndBehaviorType.Manual } });
+      void listener.hear(userId, packets);
+    });
+  }
+
+  /** Logs Discord's end-to-end encryption trouble: undecryptable audio is audio Keith can't hear. */
+  private logEncryptionTrouble(): void {
+    let lastDecryptLog = 0;
+    this.connection.on('debug', (message) => {
+      // Only the DAVE session's own messages. The other debug lines (state changes, websocket
+      // traffic) include the voice connection's secret key and token, which don't belong in a log.
+      if (!message.includes('[DAVE]')) return;
+      if (/decrypt/i.test(message)) {
+        if (Date.now() - lastDecryptLog < DECRYPT_LOG_INTERVAL_MS) return;
+        lastDecryptLog = Date.now();
+      }
+      console.warn('[voice] DAVE:', message);
+    });
   }
 
   /** Plays one WAV file; resolves when the player goes idle (finished, stopped or failed). */

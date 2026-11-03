@@ -1,4 +1,5 @@
-import type { Message } from 'discord.js';
+import { escapeMarkdown, type Client, type Message } from 'discord.js';
+import type { SpokenMessage } from '../voice/session.js';
 import type { Respond } from './respond.js';
 import type { PostedMessage } from './streamingReply.js';
 
@@ -24,6 +25,30 @@ export async function handleDiscordMessage(message: Message, respond: Respond) {
       text,
     },
     asPostedMessage(message),
+  );
+}
+
+/**
+ * Answers something said in voice. The transcript goes into the text channel first: that shows
+ * everyone what Keith heard (and that it's listening), and gives the reply something to reply to.
+ * The reply is then spoken too, because it's in the channel /join was used in.
+ */
+export async function handleSpokenMessage(client: Client, spoken: SpokenMessage, respond: Respond) {
+  const channel = await client.channels.fetch(spoken.textChannelId).catch(() => null);
+  if (!channel?.isSendable()) return;
+
+  const transcript = await channel.send({
+    content: `🎙️ **${escapeMarkdown(spoken.speaker)}:** ${escapeMarkdown(spoken.text)}`,
+    allowedMentions: { parse: [] }, // saying "at everyone" out loud shouldn't ping anybody
+  });
+  await respond(
+    {
+      guildId: spoken.guildId,
+      channelId: spoken.textChannelId,
+      speaker: spoken.speaker,
+      text: spoken.text,
+    },
+    asPostedMessage(transcript),
   );
 }
 

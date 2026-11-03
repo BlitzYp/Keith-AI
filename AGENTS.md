@@ -1,6 +1,6 @@
 # Keith (discord-keith-ai)
 
-Discord AI bot: chats in text, speaks in voice via Piper TTS, will listen in voice via STT. Runs on Windows.
+Discord AI bot: chats in text, speaks in voice via Piper TTS, listens in voice via Whisper STT. Runs on Windows.
 
 A change is done when `npm run typecheck` and `npm test` pass. Say what is left for the owner to check in
 Discord: tests can't cover the live connection, playback or the real model.
@@ -20,11 +20,16 @@ Discord: tests can't cover the live connection, playback or the real model.
 
 1. Text bot: working (owner confirmed in Discord, 2026-10-30).
 2. Voice out (Piper TTS): working: `/join` and `/say` confirmed in Discord, 2026-10-30.
-3. Voice in (STT): TODO. Per-user Opus stream from `connection.receiver` → decode to PCM → 16 kHz mono →
-   end-of-speech detection (speaking end + ~700 ms silence, or Silero VAD) → faster-whisper / whisper.cpp →
-   LLM → existing TTS path. The connection already joins with `selfDeaf: false`.
-4. Polish: wake word / respond only when addressed, barge-in via `VoiceSession.stop()`,
-   tell server members the bot listens and transcribes.
+3. Voice in (STT): built 2026-11-04, not yet confirmed in Discord. `voice/session.ts` subscribes to each
+   speaker (ends after 700 ms of silence) → `voice/listener.ts` decodes Opus, converts to 16 kHz mono,
+   transcribes, passes text on in order → `handleSpokenMessage` posts the transcript in the /join text
+   channel and answers it through the normal `respond` path, so the reply is spoken. `STT_ENGINE`: `local`
+   (faster-whisper worker, base.en, Silero VAD on) or `api` (Groq `whisper-large-v3-turbo`).
+4. Polish: `/listen` switches between answering only sentences with Keith's name (default) and everything
+   (`voice/addressing.ts`, per guild, in memory). Name matching allows one wrong letter
+   ("Keeith"). `STT_PROMPT` defaults to "A voice chat with Keith and friends." for local and none for Groq:
+   prompts made Groq drop or misspell the name in testing. A transcript that only echoes it counts as nothing.
+   TODO: barge-in via `VoiceSession.stop()`. Members see each answered transcript.
 
 ## Gotchas
 
@@ -34,7 +39,16 @@ Discord: tests can't cover the live connection, playback or the real model.
   `stop()`. Feeding sentences to `speak()` yourself would keep talking after `/shutup`.
 - **The reply only grows:** `hideThinking` (llm/thinking.ts) holds back half-written `<think>` tags so each
   "reply so far" extends the previous one. `ReplySpeech` relies on that to speak only the new part.
-- **Audio receive** is undocumented by Discord; @discordjs/voice support may be fragile.
+- **Audio receive** is undocumented by Discord; @discordjs/voice support may be fragile. Its `AfterSilence`
+  end timer only starts on the first packet, so a speaker whose packets never get through (DAVE) kept a
+  stream open forever and was never heard again. So streams are `Manual`: `listener.ts` ends a sentence
+  after 700 ms of hush (no packets, or quiet ones per `speechDetector.ts`, since open mics never stop
+  sending), keeps reading for the next sentence, and destroys the stream once packets stop. Keith logs one
+  `[listen]` line per utterance. Only `[DAVE]` debug lines are logged: the others contain the voice key.
+- **opusscript** shares one fixed-size WebAssembly heap per loaded copy; ~54 live decoders fill it and it
+  corrupts itself. Listening loads its own copy (`voice/opusDecoder.ts`) so it can't break playback.
+- **Python workers:** Piper and faster-whisper each run as one long-lived process through
+  `workers/pythonWorker.ts` (JSON lines). Both live in `.venv`; `WHISPER_PYTHON` defaults to `PIPER_PYTHON`.
 - **Piper:** `piper-tts` (1.8.0) lives in `.venv`. Loading a voice takes ~4 s; synthesis then runs at ~0.2×
   realtime. So `src/tts/piper.ts` keeps one `piper_worker.py` process alive (JSON lines over stdin/stdout) and
   warms it up on `/join`; spawning Piper per sentence would add that 4 s to every sentence.
