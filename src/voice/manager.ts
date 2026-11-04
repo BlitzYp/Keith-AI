@@ -10,6 +10,8 @@ class VoiceManager {
   private heardHandler: (spoken: SpokenMessage) => void = () => {};
   /** Each server's /listen choice. Kept across /leave and /join; a restart resets it. */
   private readonly listenModes = new Map<string, ListenMode>();
+  /** Servers where /musings is on (off by default). Kept across /leave and /join. */
+  private readonly musingsOn = new Set<string>();
 
   /** Sets what happens when someone says something in any of Keith's voice channels. */
   onHeard(handler: (spoken: SpokenMessage) => void): void {
@@ -22,6 +24,16 @@ class VoiceManager {
 
   setListenMode(guildId: string, mode: ListenMode): void {
     this.listenModes.set(guildId, mode);
+  }
+
+  musings(guildId: string): boolean {
+    return this.musingsOn.has(guildId);
+  }
+
+  setMusings(guildId: string, on: boolean): void {
+    if (on) this.musingsOn.add(guildId);
+    else this.musingsOn.delete(guildId);
+    this.sessions.get(guildId)?.setMusings(on);
   }
 
   get(guildId: string): VoiceSession | undefined {
@@ -47,6 +59,7 @@ class VoiceManager {
       },
     });
     this.sessions.set(guildId, session);
+    session.setMusings(this.musings(guildId));
     return session;
   }
 

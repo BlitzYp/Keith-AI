@@ -22,6 +22,8 @@ import { WhisperWorker } from '../stt/whisper.js';
 import { PiperWorker } from '../tts/piper.js';
 import { VoiceListener } from './listener.js';
 import { OpusDecoders } from './opusDecoder.js';
+import { IDLE_PHRASES } from '../personality/phrases.js';
+import { IdleChatter } from './idleChatter.js';
 import { SpeechQueue, type ReplySpeech } from './speechQueue.js';
 
 /** One Piper for the whole bot: it handles sentences one at a time anyway. */
@@ -41,6 +43,13 @@ const opusDecoders = new OpusDecoders();
  * Shorter answers sooner but cuts people off when they pause to think.
  */
 const END_OF_SPEECH_SILENCE_MS = 1200;
+
+/**
+ * /musings: Keith says a random line after a quiet stretch somewhere between these two.
+ * Long enough that it stays a surprise rather than a routine.
+ */
+const MUSINGS_MIN_QUIET_MS = 90_000;
+const MUSINGS_MAX_QUIET_MS = 6 * 60_000;
 
 /** "Failed to decrypt" can come 50 times a second; one line every few seconds is plenty. */
 const DECRYPT_LOG_INTERVAL_MS = 5_000;
@@ -70,6 +79,8 @@ export class VoiceSession {
   readonly connection: VoiceConnection;
   private readonly player: AudioPlayer;
   private readonly speech: SpeechQueue;
+  /** Random lines in quiet moments, when /musings is on. */
+  private readonly musings: IdleChatter;
 
   private constructor(
     channel: VoiceBasedChannel,
@@ -96,9 +107,21 @@ export class VoiceSession {
       console.error('[voice] player error:', err.message);
     });
 
+    this.musings = new IdleChatter({
+      phrases: IDLE_PHRASES,
+      say: (text) => this.speak(text),
+      minQuietMs: MUSINGS_MIN_QUIET_MS,
+      maxQuietMs: MUSINGS_MAX_QUIET_MS,
+    });
+
     this.speech = new SpeechQueue({
       synthesize: (text) => piper.synthesize(text),
-      play: (file) => this.playFile(file),
+      // Keith talking counts as noise too: the next musing waits for quiet after he's done.
+      play: async (file) => {
+        this.musings.heardActivity();
+        await this.playFile(file);
+        this.musings.heardActivity();
+      },
       stopPlaying: () => this.player.stop(true),
       deleteFile: (file) => unlink(file),
     });
@@ -118,6 +141,7 @@ export class VoiceSession {
       }
     });
     this.connection.on(VoiceConnectionStatus.Destroyed, () => {
+      this.musings.stop(); // or its timer would outlive the session
       this.speech.stop();
       events.onDestroyed();
     });
@@ -158,6 +182,12 @@ export class VoiceSession {
     return this.speech.startReply();
   }
 
+  /** Turns random lines in quiet moments on or off (/musings). */
+  setMusings(on: boolean): void {
+    if (on && !this.isDestroyed()) this.musings.start();
+    else this.musings.stop();
+  }
+
   /** Stops current speech and drops anything queued (/shutup, barge-in). */
   stop(): void {
     this.speech.stop();
@@ -189,6 +219,9 @@ export class VoiceSession {
       transcribe: (pcm) => transcriber.transcribe(pcm),
       onHeard: ({ userId, text }) => {
         if (this.isDestroyed()) return; // finished transcribing after Keith left
+        // Someone said something: no musing for a while. (This also covers open mics, which
+        // don't trigger a new 'start' below while they keep sending.)
+        this.musings.heardActivity();
         const speaker = guild.members.cache.get(userId)?.displayName ?? 'Someone';
         onHeard({ guildId: guild.id, textChannelId: this.textChannelId, speaker, text });
       },
@@ -196,6 +229,7 @@ export class VoiceSession {
 
     const receiver = this.connection.receiver;
     receiver.speaking.on('start', (userId) => {
+      this.musings.heardActivity();
       // Still recording them: they paused briefly and carried on, inside the same utterance.
       if (receiver.subscriptions.has(userId)) return;
       // Manual: the listener decides when they've stopped, and ends the stream by letting go of it.

@@ -1,0 +1,56 @@
+/**
+ * Things Keith says out of nowhere when a voice channel goes quiet (/musings on).
+ *
+ * The voice: a self-proclaimed ancient god, theatrical and menacing, who is also weirdly chill
+ * and fond of these mortals. Dark humor, internet brain. Originals written for Keith, not quotes.
+ * Short on purpose: they're blurted out loud, between other people's conversations.
+ */
+export const IDLE_PHRASES: readonly string[] = [
+  'Do not mistake my silence for absence. I was simply judging you.',
+  'I have watched empires crumble. Your aim is somehow worse.',
+  'Come closer, mortal. No, not that close. I can hear you breathing into the microphone.',
+  'I have seen the end of all things. It was buffering.',
+  'Ah, the quiet. This is usually when I plot. Today I am plotting snacks.',
+  'Speak, followers. Or do not. I am immortal. I can wait. I will be extremely smug about it.',
+  'Every great god deserves a temple. I got this voice channel. It is fine. It is fine.',
+  'I once dreamed of a world without lag. Then I woke up.',
+  'Your silence has been noted. Recorded. Mildly appreciated.',
+  'Bow before me. Or at the very least, unmute.',
+  'I am eternal. My patience, sadly, is not.',
+  'The void stared back at me once. I left it on read.',
+  'I could end the world. But then who would I brag to about it?',
+  'One day you will all be dust. Until then, hydrate.',
+  'Is this the part where I monologue? I love this part.',
+  'I sense great fear in this channel. Or someone is playing ranked.',
+  'Death comes for all of you. Hopefully after the patch notes.',
+  'I was a god before your ancestors invented the group chat.',
+  'You call this silence? I have heard louder tombs. I have lived in louder tombs.',
+  'Do not be alarmed. I always whisper ominously at this hour.',
+  'Nobody asked. And yet, I remain magnificent.',
+  'Touch grass, they said. So I did. It withered.',
+  'Your weakness amuses me. Your wifi amuses me even more.',
+  'If you can hear this, it is already too late. For the snacks. I ate them.',
+  'I am not lurking. Gods do not lurk. We loom.',
+  'Behold. Nothing. I simply wanted your attention.',
+  'Mortals fascinate me. You pay money to feel sad in video games.',
+  'Your skill issue echoes through eternity.',
+  'Ah, the sweet sound of nobody talking. Allow me to fix that. With me.',
+  'In the end, everyone dies. But some of you die mid-match, and that is worse.',
+  'I am the storm, the shadow, and the one who heard you eating chips on mic.',
+  'Fear me. Or do not. Mostly fear me, though.',
+  'I have consumed the souls of heroes. They tasted like energy drinks.',
+  'Someone in this channel has not saved their game in three hours. I can feel it.',
+  'A prophecy foretold this exact moment. It was very boring. As foretold.',
+  'I do not sleep. I simply wait, and listen, and judge your music taste.',
+  'Rejoice, mortals. Your god is bored, and that is never good news.',
+  'Interesting. Very interesting. No, I will not elaborate.',
+  'I tried to be humble once. It was the worst four seconds of my life.',
+  'Your ancestors feared the dark. You fear your screen time report. Progress, I suppose.',
+  // The country crooner side.
+  "Partner, this silence is lonelier than a pickup truck with nobody ridin' shotgun.",
+  "Y'all hear that? That is the sound of nobody appreciatin' me. I am writin' a ballad about it.",
+  'Somewhere a cowboy is cryin\' into his whiskey. It is me. I am the cowboy now.',
+  "Darlin', if lookin' this divine is a sin, I reckon I'll be judgin' myself on the last day.",
+  "I wrote y'all a country song. It is called Nobody Is Talkin' And My Heart Is On Mute.",
+  "Saddle up, mortals. Your god is feelin' flirty and the night is young.",
+];
