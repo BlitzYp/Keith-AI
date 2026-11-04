@@ -1,4 +1,5 @@
-import type { ChatMessage, ContentPart } from '../llm/client.js';
+import type { ChatMessage, ContentPart } from '../llm/messages.js';
+import type { Tools } from '../llm/toolLoop.js';
 import type { ReplySpeech } from '../voice/speechQueue.js';
 import { ChannelLock } from './channelLock.js';
 import type { HistoryStore } from './history.js';
@@ -10,6 +11,8 @@ export interface ChatRequest {
   channelId: string;
   /** Display name of whoever wrote it. */
   speaker: string;
+  /** Their Discord user id: tools act as this person (see music/brickClient.ts). */
+  userId?: string;
   /** What they said, without the @Keith mention. Can be empty when they only sent pictures. */
   text: string;
   /** Pictures that came with it, as data: URLs (see chat/images.ts). */
@@ -21,7 +24,9 @@ export interface ResponderDeps {
   systemPrompt: string | (() => string);
   history: HistoryStore;
   /** Streams the model's reply as the visible text so far (see llm/client.ts). */
-  streamReply(messages: ChatMessage[]): AsyncIterable<string>;
+  streamReply(messages: ChatMessage[], tools?: Tools): AsyncIterable<string>;
+  /** Tools the model may use for this request (the music bot), or undefined for none. */
+  toolsFor?(request: ChatRequest): Tools | undefined;
   /** Where to speak the reply aloud, or undefined when Keith isn't in voice for this channel. */
   speechFor(request: ChatRequest): ReplySpeech | undefined;
 }
@@ -52,7 +57,7 @@ export function createResponder(deps: ResponderDeps) {
       const speech = deps.speechFor(request);
       let replySoFar = '';
       try {
-        for await (replySoFar of deps.streamReply(prompt)) {
+        for await (replySoFar of deps.streamReply(prompt, deps.toolsFor?.(request))) {
           display.update(replySoFar);
           speech?.update(replySoFar);
         }

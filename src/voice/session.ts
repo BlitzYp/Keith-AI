@@ -23,6 +23,8 @@ import { PiperWorker } from '../tts/piper.js';
 import { VoiceListener } from './listener.js';
 import { OpusDecoders } from './opusDecoder.js';
 import { IDLE_PHRASES } from '../personality/phrases.js';
+import { brick } from '../music/brick.js';
+import { Ducker } from './ducker.js';
 import { IdleChatter } from './idleChatter.js';
 import { SpeechQueue, type ReplySpeech } from './speechQueue.js';
 
@@ -61,6 +63,8 @@ export interface SpokenMessage {
   textChannelId: string;
   /** Display name of whoever said it. */
   speaker: string;
+  /** Their Discord user id, so music commands act as them. */
+  userId: string;
   text: string;
 }
 
@@ -81,6 +85,8 @@ export class VoiceSession {
   private readonly speech: SpeechQueue;
   /** Random lines in quiet moments, when /musings is on. */
   private readonly musings: IdleChatter;
+  /** Turns the music bot down while Keith speaks; null when there's no music bot (MUSIC_BOT_KEY). */
+  private readonly ducker: Ducker | null;
 
   private constructor(
     channel: VoiceBasedChannel,
@@ -114,12 +120,16 @@ export class VoiceSession {
       maxQuietMs: MUSINGS_MAX_QUIET_MS,
     });
 
+    this.ducker = brick ? createDucker(channel.guild.id) : null;
+
     this.speech = new SpeechQueue({
       synthesize: (text) => piper.synthesize(text),
       // Keith talking counts as noise too: the next musing waits for quiet after he's done.
       play: async (file) => {
         this.musings.heardActivity();
+        this.ducker?.speaking();
         await this.playFile(file);
+        this.ducker?.quiet();
         this.musings.heardActivity();
       },
       stopPlaying: () => this.player.stop(true),
@@ -142,6 +152,7 @@ export class VoiceSession {
     });
     this.connection.on(VoiceConnectionStatus.Destroyed, () => {
       this.musings.stop(); // or its timer would outlive the session
+      this.ducker?.stop(); // music back up if Keith leaves mid-sentence
       this.speech.stop();
       events.onDestroyed();
     });
@@ -223,7 +234,7 @@ export class VoiceSession {
         // don't trigger a new 'start' below while they keep sending.)
         this.musings.heardActivity();
         const speaker = guild.members.cache.get(userId)?.displayName ?? 'Someone';
-        onHeard({ guildId: guild.id, textChannelId: this.textChannelId, speaker, text });
+        onHeard({ guildId: guild.id, textChannelId: this.textChannelId, speaker, userId, text });
       },
     });
 
@@ -260,6 +271,17 @@ export class VoiceSession {
       this.player.play(createAudioResource(wavToDiscordPcm(file), { inputType: StreamType.Raw }));
     });
   }
+}
+
+/** Asks the music bot to turn down (or up) in this server; a failure is logged, never thrown. */
+function createDucker(guildId: string): Ducker {
+  return new Ducker({
+    setDucked: (on) => {
+      void brick?.duck(guildId, on).then((result) => {
+        if (!result.ok) console.warn(`[music] couldn't turn the music ${on ? 'down' : 'up'}: ${result.error}`);
+      });
+    },
+  });
 }
 
 /**

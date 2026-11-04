@@ -32,6 +32,9 @@ Discord: tests can't cover the live connection, playback or the real model.
    `/musings` (off by default, per guild) says a random `personality/phrases.ts` line after 1.5 to 6 min of
    quiet; any talking restarts the wait. Personality: `prompts/jarvis.md` (`SYSTEM_PROMPT_FILE`, re-read per reply by `personality/promptFile.ts`) (a self-proclaimed
    ancient god with dark humor, inspired by the Dagoth Ur mod; original lines, no game lore).
+   Music: with `MUSIC_BOT_KEY`, the model gets tools (`music/musicTools.ts`) to control Brick Maback
+   (`../discord-music-bot`) through its web API, acting as the asker (`X-Acting-User-Id`), and
+   `voice/ducker.ts` turns Brick down while the bot speaks. Tool calls run in `llm/toolLoop.ts`.
    TODO: barge-in via `VoiceSession.stop()`. Members see each answered transcript.
 
 ## Gotchas
