@@ -2,7 +2,7 @@
 // recording voice. Everything between them is the real code.
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { ChatMessage } from '../llm/client.js';
+import type { ChatMessage } from '../llm/messages.js';
 import { hideThinking } from '../llm/thinking.js';
 import { SpeechQueue } from '../voice/speechQueue.js';
 import { HistoryStore } from './history.js';
@@ -222,5 +222,27 @@ describe('images in a message', () => {
     await respond({ ...request('hi'), images: [] }, fakeUserMessage().message);
 
     assert.deepEqual(model.prompts[0]?.[1], { role: 'user', content: 'Alice: hi' });
+  });
+});
+
+describe('tools for a reply', () => {
+  it('gives the model the tools meant for whoever is asking', async () => {
+    const seenTools: unknown[] = [];
+    const tools = { definitions: [], run: async () => 'ok' };
+    const respond = createResponder({
+      systemPrompt: SYSTEM_PROMPT,
+      history: new HistoryStore(20),
+      streamReply: async function* (_messages, given) {
+        seenTools.push(given);
+        yield 'Done.';
+      },
+      speechFor: () => undefined,
+      toolsFor: (req) => (req.userId === 'u-alice' ? tools : undefined),
+    });
+
+    await respond({ ...request('play something'), userId: 'u-alice' }, fakeUserMessage().message);
+    await respond({ ...request('play something', 'Bob'), userId: 'u-bob' }, fakeUserMessage().message);
+
+    assert.deepEqual(seenTools, [tools, undefined]);
   });
 });

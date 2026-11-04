@@ -6,6 +6,8 @@ import { handleCommand, registerCommands } from './commands.js';
 import { config } from './config.js';
 import { PromptFile } from './personality/promptFile.js';
 import { streamReply } from './llm/client.js';
+import { brick } from './music/brick.js';
+import { musicTools } from './music/musicTools.js';
 import { voiceManager } from './voice/manager.js';
 
 // The pieces are put together here, so each one can be tested on its own.
@@ -20,6 +22,9 @@ const respond = createResponder({
   systemPrompt: config.bot.systemPromptText ?? (() => promptFile!.get()),
   history,
   streamReply,
+  // With a music bot set up, the model can control it, acting as whoever asked.
+  toolsFor: ({ guildId, userId, speaker }) =>
+    brick && userId ? musicTools(brick, guildId, { id: userId, name: speaker }) : undefined,
   // Replies are spoken only in the text channel /join was used in.
   speechFor: ({ guildId, channelId }) => {
     const session = voiceManager.get(guildId);
@@ -40,6 +45,7 @@ client.once(Events.ClientReady, async (c) => {
   console.log(`Logged in as ${c.user.tag}`);
   console.log(`LLM: ${config.llm.model} @ ${config.llm.baseURL}`);
   console.log(`Personality: ${promptFile ? config.bot.systemPromptFile : 'SYSTEM_PROMPT in .env'}`);
+  console.log(`Music bot: ${brick ? config.music.baseUrl : 'off (set MUSIC_BOT_KEY to connect to Brick)'}`);
   try {
     await registerCommands();
   } catch (err) {

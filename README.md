@@ -36,6 +36,15 @@ Works with any OpenAI-compatible LLM endpoint (local llama.cpp / Ollama, or Open
 - **Personality:** edit `prompts/jarvis.md` while Keith runs; the next reply uses it. `{{name}}`
   becomes `BOT_NAME`, and `<!-- comments -->` are left out. Point `SYSTEM_PROMPT_FILE` at another
   `.md` file to swap personalities.
+- **Music (Brick Maback):** with `MUSIC_BOT_KEY` set (same key as `INTEGRATION_KEY` in the music
+  bot's `.env`), the bot can control Brick: "play daft punk", "skip this", "pause", "turn it down",
+  "what song is this?", "queue something like this", "make it nightcore" / "slowed" (daycore),
+  "what's in the queue?", "play the third one" / "play the Daft Punk song from the queue",
+  "remove the Avicii song" / "take out everything Capitano queued", "what playlists do we have?",
+  "play the touhou playlist" (added to the queue, or "instead of the queue" to replace it), and
+  whole YouTube playlist links. It acts as whoever asked, so Brick's DJ-role
+  and same-voice-channel rules still apply. While the bot talks in voice, Brick's music goes down,
+  and comes back up shortly after.
 - `/listen mode` picks who Keith answers in voice: only sentences with his name in them (the
   default), or everything anyone says. Each server keeps its own choice until Keith restarts.
 - `/say text`, `/shutup`, `/leave`, `/reset` (forget channel history).
@@ -67,8 +76,14 @@ src/
   personality/
     promptFile.ts           loads the system prompt from a Markdown file, re-read on edits
     phrases.ts              Keith's phrase bank for /musings
+  music/
+    brickClient.ts          talks to the music bot's API, acting as whoever asked
+    musicTools.ts           the music tools the model can call (play, skip, now_playing, ...)
+    brick.ts                the one client, if MUSIC_BOT_KEY is set
   llm/
-    client.ts               OpenAI-compatible streaming client
+    client.ts               OpenAI-compatible streaming client, one round at a time
+    toolLoop.ts             runs the tools the model asks for, until it answers
+    messages.ts             chat message types
     thinking.ts             hides <think> reasoning from the reply
   tts/
     piper.ts                keeps one Piper process running (piper_worker.py)
@@ -85,6 +100,7 @@ src/
     speechDetector.ts       talking vs background noise, for mics that never stop sending
     addressing.ts           /listen modes: was that sentence for Keith?
     idleChatter.ts          /musings: a random line after a random quiet stretch
+    ducker.ts               turns the music bot down while the bot speaks
     speechQueue.ts          what to speak when: ordered sentences, /shutup, streaming replies
     manager.ts              one session per guild
   workers/

@@ -66,6 +66,13 @@ export const config = {
     systemPromptText: process.env.SYSTEM_PROMPT || undefined,
     historyMaxMessages: Number(optional('HISTORY_MAX_MESSAGES', '20')),
   },
+  /** Brick Maback, the music bot (../discord-music-bot). Off unless MUSIC_BOT_KEY is set. */
+  music: {
+    /** Brick's website API. */
+    baseUrl: optional('MUSIC_BOT_URL', 'http://localhost:3000/api'),
+    /** The same random key as INTEGRATION_KEY in Brick's .env. */
+    key: process.env.MUSIC_BOT_KEY || undefined,
+  },
   piper: {
     /** Python that has piper-tts installed; runs src/tts/piper_worker.py. */
     python: piperPython,
