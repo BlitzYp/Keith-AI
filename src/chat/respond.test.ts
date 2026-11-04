@@ -176,3 +176,51 @@ describe('speaking the reply in voice', () => {
     assert.deepEqual(replies, ['Silent reply.']);
   });
 });
+
+describe('images in a message', () => {
+  const CAT = 'data:image/png;base64,Y2F0'; // stands in for a downloaded picture
+
+  it('shows the model the pictures attached to a message, next to the text', async () => {
+    const model = fakeModel(['Nice cat.']);
+    const respond = createResponder({ systemPrompt: SYSTEM_PROMPT, history: new HistoryStore(20), ...model, speechFor: () => undefined });
+
+    await respond({ ...request('what is this'), images: [CAT] }, fakeUserMessage().message);
+
+    assert.deepEqual(model.prompts[0]?.[1], {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Alice: what is this' },
+        { type: 'image_url', image_url: { url: CAT } },
+      ],
+    });
+  });
+
+  it('remembers that a picture was sent, but not the picture itself (it would be sent again every turn)', async () => {
+    const history = new HistoryStore(20);
+    const respond = createResponder({ systemPrompt: SYSTEM_PROMPT, history, ...fakeModel(['Nice cat.']), speechFor: () => undefined });
+
+    await respond({ ...request('what is this'), images: [CAT, CAT] }, fakeUserMessage().message);
+
+    assert.deepEqual(history.get('channel-1')[0], { role: 'user', content: 'Alice: what is this [sent 2 images]' });
+  });
+
+  it('answers a picture sent with no text', async () => {
+    const model = fakeModel(['A cat.']);
+    const respond = createResponder({ systemPrompt: SYSTEM_PROMPT, history: new HistoryStore(20), ...model, speechFor: () => undefined });
+
+    await respond({ ...request(''), images: [CAT] }, fakeUserMessage().message);
+
+    const question = model.prompts[0]?.[1]?.content;
+    assert.ok(Array.isArray(question));
+    assert.deepEqual(question[0], { type: 'text', text: 'Alice: [sent an image]' });
+  });
+
+  it('sends plain text when there are no pictures, as before', async () => {
+    const model = fakeModel(['Hi.']);
+    const respond = createResponder({ systemPrompt: SYSTEM_PROMPT, history: new HistoryStore(20), ...model, speechFor: () => undefined });
+
+    await respond({ ...request('hi'), images: [] }, fakeUserMessage().message);
+
+    assert.deepEqual(model.prompts[0]?.[1], { role: 'user', content: 'Alice: hi' });
+  });
+});

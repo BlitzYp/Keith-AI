@@ -42,6 +42,16 @@ export const commands = [
         ),
     ),
   new SlashCommandBuilder()
+    .setName('musings')
+    .setDescription('Turn on or off my habit of saying something ominous when the voice channel goes quiet')
+    .addStringOption((o) =>
+      o
+        .setName('mode')
+        .setDescription('On or off')
+        .setRequired(true)
+        .addChoices({ name: 'On', value: 'on' }, { name: 'Off', value: 'off' }),
+    ),
+  new SlashCommandBuilder()
     .setName('reset')
     .setDescription('Forget the conversation history in this channel'),
 ].map((c) => c.toJSON());
@@ -117,6 +127,18 @@ export async function handleCommand(
       const mode = interaction.options.getString('mode', true) as ListenMode;
       voiceManager.setListenMode(guild.id, mode);
       await interaction.reply(`Okay: in voice I'll answer ${LISTEN_MODES[mode]}.`);
+      return;
+    }
+
+    case 'musings': {
+      const on = interaction.options.getString('mode', true) === 'on';
+      voiceManager.setMusings(guild.id, on);
+      const inVoice = voiceManager.get(guild.id) !== undefined;
+      await interaction.reply(
+        on
+          ? `Musings on. When the voice channel goes quiet, I may speak.${inVoice ? '' : ' (Once I /join one.)'}`
+          : 'Musings off. I will suffer the silence like everyone else.',
+      );
       return;
     }
 

@@ -1,5 +1,6 @@
 import { escapeMarkdown, type Client, type Message } from 'discord.js';
 import type { SpokenMessage } from '../voice/session.js';
+import { downloadImages, type Attachment } from './images.js';
 import type { Respond } from './respond.js';
 import type { PostedMessage } from './streamingReply.js';
 
@@ -7,25 +8,43 @@ import type { PostedMessage } from './streamingReply.js';
  * The Discord side of chatting: decides whether a message is for Keith, turns it into a plain
  * ChatRequest, and hands it to `respond`. Kept thin on purpose; the logic lives in respond.ts.
  */
-export async function handleDiscordMessage(message: Message, respond: Respond) {
+export async function handleDiscordMessage(
+  message: Message,
+  respond: Respond,
+  /** False for text-only models: pictures are then left out (LLM_SEES_IMAGES). */
+  seesImages: boolean,
+) {
   if (message.author.bot || !message.inGuild()) return;
-  if (!(await isForKeith(message))) return;
+  const repliedTo = message.reference?.messageId
+    ? await message.fetchReference().catch(() => null)
+    : null;
+  if (!isForKeith(message, repliedTo)) return;
 
   // cleanContent turns <@id> into @Name; drop Keith's own mention.
   const keithName = message.guild.members.me?.displayName ?? message.client.user.username;
   const text = message.cleanContent.replaceAll(`@${keithName}`, '').trim();
-  if (!text) return;
 
   await message.channel.sendTyping().catch(() => {});
+  // Pictures in the message, and in the one it replies to ("@Keith what is this?" under a photo).
+  const images = seesImages
+    ? await downloadImages([...attachmentsOf(message), ...(repliedTo ? attachmentsOf(repliedTo) : [])])
+    : [];
+  if (!text && images.length === 0) return;
+
   await respond(
     {
       guildId: message.guildId,
       channelId: message.channelId,
       speaker: message.member?.displayName ?? message.author.username,
       text,
+      images,
     },
     asPostedMessage(message),
   );
+}
+
+function attachmentsOf(message: Message): Attachment[] {
+  return message.attachments.map((a) => ({ url: a.url, contentType: a.contentType, size: a.size }));
 }
 
 /**
@@ -53,12 +72,9 @@ export async function handleSpokenMessage(client: Client, spoken: SpokenMessage,
 }
 
 /** Keith answers when @mentioned, or when someone replies to one of Keith's messages. */
-async function isForKeith(message: Message): Promise<boolean> {
+function isForKeith(message: Message, repliedTo: Message | null): boolean {
   const keithId = message.client.user.id;
-  if (message.mentions.users.has(keithId)) return true;
-  if (!message.reference?.messageId) return false;
-  const repliedTo = await message.fetchReference().catch(() => null);
-  return repliedTo?.author.id === keithId;
+  return message.mentions.users.has(keithId) || repliedTo?.author.id === keithId;
 }
 
 function asPostedMessage(message: Message): PostedMessage {

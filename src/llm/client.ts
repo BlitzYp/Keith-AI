@@ -2,9 +2,16 @@ import OpenAI from 'openai';
 import { config } from '../config.js';
 import { hideThinking } from './thinking.js';
 
+/** One piece of a message that has pictures in it: some text, or one picture. */
+export type ContentPart =
+  | { type: 'text'; text: string }
+  /** `url` is a data: URL (the picture itself) or a link the model's provider can fetch. */
+  | { type: 'image_url'; image_url: { url: string } };
+
 export type ChatMessage = {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  /** Plain text, or text and pictures (for models that can see, like GLM 5.3 Flash). */
+  content: string | ContentPart[];
 };
 
 /**
@@ -25,7 +32,9 @@ export function streamReply(messages: ChatMessage[]): AsyncGenerator<string> {
 async function* streamChunks(messages: ChatMessage[]): AsyncGenerator<string> {
   const stream = await openai.chat.completions.create({
     model: config.llm.model,
-    messages,
+    // Our ChatMessage matches OpenAI's format, but TypeScript can't tell which role goes with
+    // which kind of content, so it's cast here once.
+    messages: messages as OpenAI.Chat.ChatCompletionMessageParam[],
     stream: true,
   });
 

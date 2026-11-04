@@ -43,7 +43,7 @@ function sttPrompt(): string | undefined {
 const llmBaseURL = optional('LLM_BASE_URL', 'http://localhost:11434/v1');
 const llmApiKey = optional('LLM_API_KEY', 'not-needed');
 const piperPython = optional('PIPER_PYTHON', '.venv/Scripts/python.exe');
-const botName = optional('BOT_NAME', 'Keith');
+const botName = optional('BOT_NAME', 'Jarvis');
 
 export const config = {
   discord: {
@@ -55,13 +55,15 @@ export const config = {
     baseURL: llmBaseURL,
     apiKey: llmApiKey,
     model: required('LLM_MODEL'),
+    /** Whether the model can look at pictures. Set LLM_SEES_IMAGES=false for text-only models. */
+    seesImages: optional('LLM_SEES_IMAGES', 'true') !== 'false',
   },
   bot: {
     name: botName,
-    systemPrompt: optional(
-      'SYSTEM_PROMPT',
-      'You are Keith, a friendly member of this Discord server. Keep replies short and conversational.',
-    ),
+    /** Markdown file with Keith's personality (see prompts/jarvis.md). Re-read for every reply. */
+    systemPromptFile: optional('SYSTEM_PROMPT_FILE', './prompts/jarvis.md'),
+    /** A prompt written straight into .env. If set, it's used instead of the file. */
+    systemPromptText: process.env.SYSTEM_PROMPT || undefined,
     historyMaxMessages: Number(optional('HISTORY_MAX_MESSAGES', '20')),
   },
   piper: {

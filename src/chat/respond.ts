@@ -1,4 +1,4 @@
-import type { ChatMessage } from '../llm/client.js';
+import type { ChatMessage, ContentPart } from '../llm/client.js';
 import type { ReplySpeech } from '../voice/speechQueue.js';
 import { ChannelLock } from './channelLock.js';
 import type { HistoryStore } from './history.js';
@@ -10,12 +10,15 @@ export interface ChatRequest {
   channelId: string;
   /** Display name of whoever wrote it. */
   speaker: string;
-  /** What they said, without the @Keith mention. */
+  /** What they said, without the @Keith mention. Can be empty when they only sent pictures. */
   text: string;
+  /** Pictures that came with it, as data: URLs (see chat/images.ts). */
+  images?: string[];
 }
 
 export interface ResponderDeps {
-  systemPrompt: string;
+  /** Fixed text, or a function asked before every reply (prompts/jarvis.md, re-read on edits). */
+  systemPrompt: string | (() => string);
   history: HistoryStore;
   /** Streams the model's reply as the visible text so far (see llm/client.ts). */
   streamReply(messages: ChatMessage[]): AsyncIterable<string>;
@@ -36,11 +39,13 @@ export function createResponder(deps: ResponderDeps) {
   return function respond(request: ChatRequest, userMessage: ReplyTarget): Promise<void> {
     // One reply per channel at a time, so the history never interleaves.
     return lock.run(request.channelId, async () => {
-      const question: ChatMessage = { role: 'user', content: `${request.speaker}: ${request.text}` };
       const prompt: ChatMessage[] = [
-        { role: 'system', content: deps.systemPrompt },
+        {
+          role: 'system',
+          content: typeof deps.systemPrompt === 'function' ? deps.systemPrompt() : deps.systemPrompt,
+        },
         ...deps.history.get(request.channelId),
-        question,
+        { role: 'user', content: questionWithImages(request) },
       ];
 
       const display = new StreamingReply(userMessage);
@@ -63,10 +68,34 @@ export function createResponder(deps: ResponderDeps) {
       speech?.finish();
       await display.finish();
 
-      deps.history.push(request.channelId, question);
+      // History keeps a note instead of the pictures: they'd be sent again with every later message.
+      deps.history.push(request.channelId, { role: 'user', content: questionForHistory(request) });
       deps.history.push(request.channelId, { role: 'assistant', content: answer });
     });
   };
 }
 
 export type Respond = ReturnType<typeof createResponder>;
+
+/** "Alice: what is this", or "Alice: [sent an image]" when there's no text. */
+function questionText(request: ChatRequest): string {
+  return `${request.speaker}: ${request.text || '[sent an image]'}`;
+}
+
+/** The question as the model sees it now: plain text, or text followed by the pictures. */
+function questionWithImages(request: ChatRequest): string | ContentPart[] {
+  const images = request.images ?? [];
+  if (images.length === 0) return questionText(request);
+  return [
+    { type: 'text', text: questionText(request) },
+    ...images.map((url): ContentPart => ({ type: 'image_url', image_url: { url } })),
+  ];
+}
+
+/** The question as remembered: the text plus a note like "[sent 2 images]". */
+function questionForHistory(request: ChatRequest): string {
+  const count = request.images?.length ?? 0;
+  if (count === 0) return questionText(request);
+  if (!request.text) return questionText(request);
+  return `${questionText(request)} [sent ${count === 1 ? 'an image' : `${count} images`}]`;
+}

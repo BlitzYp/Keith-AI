@@ -29,6 +29,9 @@ Discord: tests can't cover the live connection, playback or the real model.
    (`voice/addressing.ts`, per guild, in memory). Name matching allows one wrong letter
    ("Keeith"). `STT_PROMPT` defaults to "A voice chat with Keith and friends." for local and none for Groq:
    prompts made Groq drop or misspell the name in testing. A transcript that only echoes it counts as nothing.
+   `/musings` (off by default, per guild) says a random `personality/phrases.ts` line after 1.5 to 6 min of
+   quiet; any talking restarts the wait. Personality: `prompts/jarvis.md` (`SYSTEM_PROMPT_FILE`, re-read per reply by `personality/promptFile.ts`) (a self-proclaimed
+   ancient god with dark humor, inspired by the Dagoth Ur mod; original lines, no game lore).
    TODO: barge-in via `VoiceSession.stop()`. Members see each answered transcript.
 
 ## Gotchas
